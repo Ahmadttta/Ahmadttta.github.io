@@ -1,0 +1,44 @@
+name: sync-app-ads
+
+on:
+  schedule:
+    # 3 مرّات يوميّاً — الساعات بتوقيت UTC (= 2ص / 10ص / 6م بتوقيتك UTC+3)
+    #   07:00 UTC = 10 صباحاً  · 15:00 UTC = 6 مساءً  · 23:00 UTC = 2 صباحاً
+    - cron: '0 7,15,23 * * *'
+  workflow_dispatch: {}   # زرّ تشغيل يدويّ فوريّ
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-app-ads
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build app-ads.txt (cas.ai + yodo-lines.txt)
+        run: |
+          set -euo pipefail
+          # المصدر الحقيقيّ: ملفّ cas.ai الحيّ (فيه كلّ الأقسام الجديدة تلقائيّاً)
+          curl -fsSL --retry 3 https://cas.ai/app-ads.txt -o cas.txt
+          # فحص سلامة: يجب أن يكون الملفّ الحقيقيّ لا صفحة خطأ — وإلّا نتوقّف ولا نمسّ ملفّك
+          grep -q 'OwnerDomain=cas.ai' cas.txt
+          # الدمج: CAS أولاً، ثمّ سطر فاصل، ثمّ كتلة يودو بالأسفل
+          { cat cas.txt; echo; cat yodo-lines.txt; } > app-ads.txt
+          rm -f cas.txt
+
+      - name: Commit if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app-ads.txt
+          if git diff --cached --quiet; then
+            echo "No change — nothing to commit."
+          else
+            git commit -m "sync app-ads.txt from cas.ai"
+            git push
+          fi
